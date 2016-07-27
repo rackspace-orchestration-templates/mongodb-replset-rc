@@ -1,0 +1,168 @@
+heat_template_version: 2013-05-23
+
+description: |
+  Multiple Linux servers running [MongoDB](http://www.mongodb.org/) version
+  2.6 configured as a replica set.
+
+parameter_groups:
+
+- label: Server Settings
+  parameters:
+  - image
+  - flavor
+  - peer_server_count
+- label: RackConnect Settings
+  parameters:
+  - rc_network_name
+- label: rax-dev-params
+  # These are parameters that will not be displayed in the portal. The purpose
+  # of these parameters are for users who are developing or testing newer or
+  # different setups. If any of these parameters are changed, there is a good
+  # chance this stack will fail to properly deploy.
+  parameters:
+  - kitchen
+  - chef_version
+  - child_template
+
+
+parameters:
+  server_hostname:
+    label: Server Hostnames
+    description: Defines how the server will be named.
+    type: string
+    default: 'mongodb'
+
+  image:
+    label: Operating System
+    description: |
+      Server image used for all servers that are created as a part of this
+      deployment
+    type: string
+    default: Ubuntu 14.04 LTS (Trusty Tahr) (PVHVM)
+    constraints:
+    - allowed_values:
+      - Ubuntu 14.04 LTS (Trusty Tahr) (PVHVM)
+      description: Must be a supported operating system.
+
+  flavor:
+    label: Server Size
+    description: |
+      Rackspace Cloud Server flavor to use. The size is based on the amount of
+      RAM for the provisioned server.
+    type: string
+    default: 4 GB General Purpose v1
+    constraints:
+    - allowed_values:
+      - 1 GB General Purpose v1
+      - 2 GB General Purpose v1
+      - 4 GB General Purpose v1
+      - 8 GB General Purpose v1
+      - 15 GB I/O v1
+      - 30 GB I/O v1
+      - 1GB Standard Instance
+      - 2GB Standard Instance
+      - 4GB Standard Instance
+      - 8GB Standard Instance
+      - 15GB Standard Instance
+      - 30GB Standard Instance
+      description: |
+        Must be a valid Rackspace Cloud Server flavor for the region you have
+        selected to deploy into.
+
+  child_template:
+    label: Child Template
+    description: |
+      Location of the child template to use for the MongoDB peers
+    type: string
+    default: https://raw.githubusercontent.com/rackspace-orchestration-templates/mongodb-replset-rc/master/mongodb-replset-peers.yaml
+
+  peer_server_count:
+    label: number of nodes in the cluster
+    description: The number of replica set members to build--preferably an odd number.
+    type: number
+    default: 3
+    constraints:
+      - range:
+          min: 1
+          max: 12
+
+  kitchen:
+    label: Kitchen URL
+    description: URL for a git repo containing required cookbooks
+    type: string
+    default: https://github.com/rackspace-orchestration-templates/mongodb-replset-rc
+
+  chef_version:
+    label: Chef Version
+    description: Version of chef client to use
+    type: string
+    default: 12.3.0
+
+  rc_network_name:
+    type: string
+    label: RackConnect Network
+    description: Name or UUID of RackConnected network to attach this server to
+    constraints:
+    - custom_constraint: rackconnect.network
+    immutable: true
+resources:
+
+  ssh_key:
+    type: "OS::Nova::KeyPair"
+    properties:
+      name: { get_param: "OS::stack_id" }
+      save_private_key: true
+
+  mongodb_peer_servers:
+    type: "OS::Heat::ResourceGroup"
+    properties:
+      count: { get_param: peer_server_count }
+      resource_def:
+        type: { get_param: child_template }
+        properties:
+          server_hostname:
+            str_replace:
+              template: '%name%-0%index%'
+              params:
+                '%name%': { get_param: server_hostname }
+          image: { get_param: image }
+          flavor: { get_param: flavor }
+          ssh_key: { get_resource: ssh_key }
+          ssh_private_key: { get_attr: [ssh_key, private_key] }
+          kitchen: { get_param: kitchen }
+          chef_version: { get_param: chef_version }
+          rc_network_name: { get_param: rc_network_name }
+
+  server_setup:
+    type: "OS::Heat::ChefSolo"
+    depends_on:
+    - mongodb_peer_servers
+    properties:
+      username: root
+      private_key: { get_attr: [ssh_key, private_key] }
+      host: { get_attr: [mongodb_peer_servers, accessIPv4, 0] }
+      kitchen: { get_param: kitchen }
+      chef_version: { get_param: chef_version }
+      node:
+        mongodb:
+          ruby_gems:
+            mongo: '2.0.5'
+            bson_ext: '1.12.3'
+          bind_ip: { get_attr: [mongodb_peer_servers, privateIPv4, 0] }
+          use_fqdn: false
+          replicaset_members: { get_attr: [mongodb_peer_servers, privateIPv4] }
+          config:
+            replset: myreplset
+        rax:
+          firewall:
+            tcp: [22,27017]
+        run_list: [ "recipe[config_replset]" ]
+
+outputs:
+  private_key:
+    value: { get_attr: [ssh_key, private_key] }
+    description: "SSH Private Key"
+
+  server_public_ips:
+    value: { get_attr: [mongodb_peer_servers, server_public_ip] }
+    description: "Server IPs"

@@ -1,0 +1,150 @@
+heat_template_version: 2013-05-23
+
+description: |
+  This is a Heat template to deploy a single Linux servers running MongoDB.
+
+parameters:
+  server_hostname:
+    label: Server Hostnames
+    description: Defines how the server will be named.
+    type: string
+    default: 'mongo-%index%'
+
+  image:
+    label: Operating System
+    description: |
+      Server image used for all servers that are created as a part of this
+      deployment
+    type: string
+    default: Ubuntu 14.04 LTS (Trusty Tahr) (PVHVM)
+    constraints:
+    - allowed_values:
+      - Ubuntu 14.04 LTS (Trusty Tahr) (PVHVM)
+      description: Must be a supported operating system.
+
+  flavor:
+    label: Server Size
+    description: |
+      Rackspace Cloud Server flavor to use. The size is based on the amount of
+      RAM for the provisioned server.
+    type: string
+    default: 4 GB General Purpose v1
+    constraints:
+    - allowed_values:
+      - 1 GB General Purpose v1
+      - 2 GB General Purpose v1
+      - 4 GB General Purpose v1
+      - 8 GB General Purpose v1
+      - 15 GB I/O v1
+      - 30 GB I/O v1
+      - 1GB Standard Instance
+      - 2GB Standard Instance
+      - 4GB Standard Instance
+      - 8GB Standard Instance
+      - 15GB Standard Instance
+      - 30GB Standard Instance
+      description: |
+        Must be a valid Rackspace Cloud Server flavor for the region you have
+        selected to deploy into.
+
+  kitchen:
+    description: "URL for a git repo containing required cookbooks"
+    type: string
+    default: https://github.com/rackspace-orchestration-templates/mongodb-replset
+
+  chef_version:
+    description: Version of chef client to use
+    type: string
+    default: 12.3.0
+
+  ssh_key:
+    description: the ssh name
+    type: string
+
+  ssh_private_key:
+    description: the ssh private key to use for ssh login
+    type: string
+
+  rc_network_name:
+    type: string
+    label: RackConnect Network
+    description: Name or UUID of RackConnected network to attach this server to
+    constraints:
+    - custom_constraint: rackconnect.network
+    immutable: true
+resources:
+
+  mongodb_peer_server:
+    type: "OS::Nova::Server"
+    properties:
+      name: { get_param: server_hostname }
+      flavor: { get_param: flavor }
+      image: { get_param: image }
+      key_name: { get_param: ssh_key }
+      config_drive: "true"
+      networks:
+      - network: { get_param: rc_network_name }
+      - network: 11111111-1111-1111-1111-111111111111
+
+  mongodb_peer_server_public_ip:
+    type: Rackspace::RackConnect::PublicIP
+    depends_on:
+    - mongodb_peer_server
+    properties:
+      server_id: { get_resource: mongodb_peer_server }
+      
+  server_setup:
+    type: "OS::Heat::ChefSolo"
+    depends_on: mongodb_peer_server
+    properties:
+      username: root
+      private_key: { get_param: ssh_private_key }
+      host: { get_attr: [mongodb_peer_server, networks, private, 0] }
+      kitchen: { get_param: kitchen }
+      chef_version: { get_param: chef_version }
+      node:
+        build-essential:
+          compile_time: true
+        apt:
+          compile_time_update: true
+        mongodb:
+          ruby_gems:
+            mongo: '2.0.5'
+            bson_ext: '1.12.3'
+          default_init_name: mongod
+          instance_name: mongod
+          dbconfig_file: /etc/mongod.conf
+          sysconfig:
+            DAEMON_OPTS: "--config /etc/mongod.conf"
+            CONFIGFILE: /etc/mongod.conf
+          is_replicaset: true
+          cluster_name: mongodb
+          use_fqdn: false
+          auto_configure:
+            replicaset: false
+          config:
+            replSet: myreplset
+            bind_ip: 0.0.0.0
+        rax:
+          firewall:
+            tcp: [22,27017]
+        run_list: [ "recipe[apt]",
+                    "recipe[build-essential]",
+                    "recipe[install_packages]",
+                    "recipe[mongodb::10gen_repo]",
+                    "recipe[mongodb::replicaset]",
+                    "recipe[rax-firewall]" ]
+
+outputs:
+
+  server_public_ip:
+    value: { get_attr: [mongodb_peer_server, accessIPv4] }
+    description: "Server IP"
+
+  privateIPv4:
+    value: { get_attr: [mongodb_peer_server, networks, private, 0] }
+    description: the private ip of the peer server
+
+  accessIPv4:
+    value: { get_attr: [mongodb_peer_server, networks, { get_param: rc_network_name }, 0] }
+    description: the private ip of the peer server
