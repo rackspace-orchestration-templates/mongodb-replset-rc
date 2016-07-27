@@ -140,7 +140,7 @@ resources:
     properties:
       username: root
       private_key: { get_attr: [ssh_key, private_key] }
-      host: { get_attr: [mongodb_peer_servers, accessIPv4, 0] }
+      host: { get_attr: [mongodb_peer_servers, privateIPv4, 0] }
       kitchen: { get_param: kitchen }
       chef_version: { get_param: chef_version }
       node:
@@ -150,7 +150,7 @@ resources:
             bson_ext: '1.12.3'
           bind_ip: { get_attr: [mongodb_peer_servers, privateIPv4, 0] }
           use_fqdn: false
-          replicaset_members: { get_attr: [mongodb_peer_servers, privateIPv4] }
+          replicaset_members: { get_attr: [mongodb_peer_servers, accessIPv4] }
           config:
             replset: myreplset
         rax:
