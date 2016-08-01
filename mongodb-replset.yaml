@@ -1,6 +1,7 @@
 heat_template_version: 2013-05-23
 
 description: |
+  ####Multiple Linux Servers - RCv3
   Multiple Linux servers running [MongoDB](http://www.mongodb.org/) version
   2.6 configured as a replica set.
 
