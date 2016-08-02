@@ -40,7 +40,7 @@ instructions: |
   as well as [Windows using
   PuTTY](http://www.rackspace.com/knowledge_center/article/logging-in-with-a-ssh-private-key-on-windows).
 description: |
-  ####Multiple Linux Servers - RCv3
+  #### Multiple Linux Servers - RCv3
   Multiple Linux servers running [MongoDB](http://www.mongodb.org/) version
   2.6 configured as a replica set.
 
